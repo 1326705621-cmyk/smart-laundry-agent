@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8" /></head>
+  <body style="margin:0;height:0;overflow:hidden">
+    <script>
+      const send = (type, detail = {}) => {
+        window.parent.postMessage(
+          { isStreamlitMessage: true, type, ...detail }, "*"
+        );
+      };
+      let attempted = false;
+
+      window.addEventListener("message", (event) => {
+        if (event.data.type !== "streamlit:render" || attempted) return;
+        send("streamlit:setFrameHeight", { height: 0 });
+        if (!event.data.args.enabled) return;
+        attempted = true;
+
+        const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+          || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        if (!mobile) {
+          send("streamlit:setComponentValue", { value: { status: "not_mobile" } });
+          return;
+        }
+        if (!navigator.geolocation) {
+          send("streamlit:setComponentValue", { value: { status: "unsupported" } });
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => send("streamlit:setComponentValue", {
+            value: {
+              status: "ok",
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            }
+          }),
+          (error) => send("streamlit:setComponentValue", {
+            value: { status: "error", message: error.message }
+          }),
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 3600000 }
+        );
+      });
+
+      send("streamlit:componentReady", { apiVersion: 1 });
+    </script>
+  </body>
+</html>
