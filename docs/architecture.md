@@ -15,6 +15,7 @@ Smart Laundry Agent 将确定性的家庭物品数据和状态规则，与可能
 | 数据层 | `database.py`、`repositories.py`、`accounts.py` | SQLite 建表、事务、CRUD、账户与家庭作用域 |
 | 外部服务 | `weather.py` | 城市解析、天气查询、缓存、统一响应和错误映射 |
 | 展示扩展 | `visual_design.py`、`visual_designer_component.py` | 管理员外观配置、白名单校验和 CSS 生成 |
+| 图片处理 | `image_cropper_component.py`、`image_storage.py` | 本地拖动缩放预览、裁剪参数校验、固定尺寸压缩保存 |
 
 ## 核心数据流
 
@@ -52,6 +53,7 @@ sequenceDiagram
 - 写操作使用稳定物品 ID，并在 UI 中显式确认。
 - 工具参数由 Pydantic 校验，Agent 最多运行 5 轮。
 - 数据库、上传图片、日志和本地密钥不会提交到 Git。
+- 上传图片的预览、移动、缩放和裁剪均在本地完成，不会发送给 LLM 或第三方图像服务。
 
 ## 降级策略
 

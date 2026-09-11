@@ -4,7 +4,13 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from smart_laundry.image_storage import ImageStorageError, save_item_image
+from smart_laundry.image_storage import (
+    CARD_IMAGE_SIZE,
+    ImageStorageError,
+    crop_item_image,
+    save_item_image,
+    validate_crop_box,
+)
 
 
 def _png_bytes(size: tuple[int, int] = (80, 60)) -> bytes:
@@ -30,3 +36,38 @@ def test_invalid_image_is_rejected(tmp_path: Path) -> None:
 def test_empty_image_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ImageStorageError, match="为空"):
         save_item_image(b"", tmp_path)
+
+
+def test_crop_image_uses_card_size() -> None:
+    cropped = crop_item_image(
+        _png_bytes((1200, 900)),
+        {"left": 0.065, "top": 0.0, "width": 0.87, "height": 1.0},
+    )
+
+    assert cropped.size == CARD_IMAGE_SIZE
+
+
+def test_crop_box_outside_image_is_rejected() -> None:
+    with pytest.raises(ImageStorageError, match="超出原图"):
+        validate_crop_box(
+            {"left": 0.8, "top": 0.1, "width": 0.4, "height": 0.5}
+        )
+
+
+def test_crop_box_with_wrong_aspect_ratio_is_rejected() -> None:
+    with pytest.raises(ImageStorageError, match="比例"):
+        crop_item_image(
+            _png_bytes((1200, 900)),
+            {"left": 0.1, "top": 0.1, "width": 0.5, "height": 0.5},
+        )
+
+
+def test_cropped_image_is_saved_at_exact_card_size(tmp_path: Path) -> None:
+    target = save_item_image(
+        _png_bytes((1200, 900)),
+        tmp_path / "uploads",
+        crop_box={"left": 0.065, "top": 0.0, "width": 0.87, "height": 1.0},
+    )
+
+    with Image.open(target) as image:
+        assert image.size == CARD_IMAGE_SIZE

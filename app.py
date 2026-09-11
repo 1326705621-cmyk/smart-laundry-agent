@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from html import escape
 import json
 import sqlite3
@@ -20,7 +21,14 @@ from smart_laundry.agent import run_laundry_agent
 from smart_laundry.database import initialize_database
 from smart_laundry.demo_data import seed_demo_data
 from smart_laundry.device_location import get_device_location
-from smart_laundry.image_storage import ImageStorageError, save_item_image
+from smart_laundry.image_cropper_component import render_image_cropper
+from smart_laundry.image_storage import (
+    ImageStorageError,
+    cropped_item_image_bytes,
+    save_item_image,
+    validate_crop_box,
+    validate_item_image,
+)
 from smart_laundry.item_views import filter_and_sort_items, search_items
 from smart_laundry.models import (
     ITEM_CATEGORIES,
@@ -1158,29 +1166,124 @@ with add_tab:
     with form_column:
         with st.container(key="add_shell"):
             st.subheader("添加物品")
-            with st.form("create_item_form", clear_on_submit=True):
-                name = st.text_input("物品名称", placeholder="例如：主卧四季被")
-                category = st.selectbox("类别", ITEM_CATEGORIES)
-                wash_interval_days = st.text_input(
-                    "建议清洗周期（天，可选）", placeholder="例如：30；不提醒可留空"
-                )
-                dry_interval_days = st.text_input(
-                    "建议晾晒周期（天，可选）", placeholder="例如：14；不提醒可留空"
-                )
-                uploaded_image = st.file_uploader(
-                    "物品照片（可选）",
-                    type=["jpg", "jpeg", "png", "webp"],
-                    max_upload_size=5,
-                    help="用于区分相似物品；图片只保存在本地 data/uploads。",
-                )
-                notes = st.text_area("备注（可选）", max_chars=500)
-                create_submitted = st.form_submit_button("添加物品", type="primary", width="stretch")
+            form_version = int(st.session_state.get("create_item_form_version", 0))
+            widget_prefix = f"create_item_{form_version}"
+            name = st.text_input(
+                "物品名称",
+                placeholder="例如：主卧四季被",
+                key=f"{widget_prefix}_name",
+            )
+            category = st.selectbox(
+                "类别", ITEM_CATEGORIES, key=f"{widget_prefix}_category"
+            )
+            wash_interval_days = st.text_input(
+                "建议清洗周期（天，可选）",
+                placeholder="例如：30；不提醒可留空",
+                key=f"{widget_prefix}_wash",
+            )
+            dry_interval_days = st.text_input(
+                "建议晾晒周期（天，可选）",
+                placeholder="例如：14；不提醒可留空",
+                key=f"{widget_prefix}_dry",
+            )
+            uploaded_image = st.file_uploader(
+                "物品照片（可选）",
+                type=["jpg", "jpeg", "png", "webp"],
+                max_upload_size=5,
+                key=f"{widget_prefix}_image",
+                help=(
+                    "选择后先按卡片最终比例预览，可拖动和缩放；"
+                    "确认构图后才会保存到本地 data/uploads。"
+                ),
+            )
+
+            crop_box: dict[str, float] | None = None
+            upload_content: bytes | None = None
+            if uploaded_image is not None:
+                upload_content = uploaded_image.getvalue()
+                image_digest = hashlib.sha256(upload_content).hexdigest()[:16]
+                crop_state_key = f"{widget_prefix}_crop_state"
+                try:
+                    validate_item_image(upload_content)
+                    saved_crop_state = st.session_state.get(crop_state_key)
+                    if (
+                        isinstance(saved_crop_state, dict)
+                        and saved_crop_state.get("digest") == image_digest
+                    ):
+                        crop_box = validate_crop_box(saved_crop_state.get("box", {}))
+
+                    if crop_box is None:
+                        st.markdown("#### 调整图片构图")
+                        st.caption("下方预览框与物品卡片使用相同的 1.16:1 比例。")
+                        cropper_key = f"{widget_prefix}_cropper_{image_digest}"
+
+                        def _remember_crop() -> None:
+                            component_state = st.session_state.get(cropper_key, {})
+                            crop_json = (
+                                component_state.get("crop_confirmed")
+                                if component_state
+                                else None
+                            )
+                            if not crop_json:
+                                return
+                            try:
+                                confirmed_box = validate_crop_box(json.loads(crop_json))
+                                st.session_state[crop_state_key] = {
+                                    "digest": image_digest,
+                                    "box": confirmed_box,
+                                }
+                            except (json.JSONDecodeError, ImageStorageError) as error:
+                                st.session_state[f"{crop_state_key}_error"] = str(error)
+
+                        render_image_cropper(
+                            content=upload_content,
+                            mime_type=uploaded_image.type or "image/jpeg",
+                            key=cropper_key,
+                            on_confirm=_remember_crop,
+                        )
+                        crop_error = st.session_state.pop(
+                            f"{crop_state_key}_error", None
+                        )
+                        if crop_error:
+                            st.error(crop_error)
+                    else:
+                        st.markdown("#### 最终卡片预览")
+                        st.image(
+                            cropped_item_image_bytes(upload_content, crop_box),
+                            width="stretch",
+                        )
+                        st.success("构图已确认，添加物品时会保存这个画面。")
+                        if st.button(
+                            "重新调整构图",
+                            key=f"{widget_prefix}_recrop",
+                            width="stretch",
+                        ):
+                            st.session_state.pop(crop_state_key, None)
+                            st.rerun()
+                except ImageStorageError as error:
+                    st.error(str(error))
+
+            notes = st.text_area(
+                "备注（可选）", max_chars=500, key=f"{widget_prefix}_notes"
+            )
+            image_needs_confirmation = uploaded_image is not None and crop_box is None
+            if image_needs_confirmation:
+                st.info("请先在图片预览下点击“确认使用这个构图”。")
+            create_submitted = st.button(
+                "添加物品",
+                type="primary",
+                width="stretch",
+                disabled=image_needs_confirmation,
+                key=f"{widget_prefix}_submit",
+            )
             if create_submitted:
                 saved_image: Path | None = None
                 try:
-                    if uploaded_image is not None:
+                    if upload_content is not None and crop_box is not None:
                         saved_image = save_item_image(
-                            uploaded_image.getvalue(), upload_directory
+                            upload_content,
+                            upload_directory,
+                            crop_box=crop_box,
                         )
                     created = repository.create_item(
                         name=name,
@@ -1195,6 +1298,7 @@ with add_tab:
                         image_path=str(saved_image) if saved_image else None,
                     )
                     st.session_state["flash_message"] = f"已添加“{created.name}”。"
+                    st.session_state["create_item_form_version"] = form_version + 1
                     st.rerun()
                 except (ItemValidationError, ImageStorageError) as error:
                     if saved_image:

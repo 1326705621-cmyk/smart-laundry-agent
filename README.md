@@ -56,7 +56,8 @@
 - 城市、日期、单字天气和待关注数量统一在一行展示
 - 手动选择的城市保存到账户，刷新或重新登录后仍会恢复
 - 手机首次使用可在浏览器授权后自动定位城市；失败时继续使用手动选择
-- 本地物品图片上传、压缩与缩略图
+- 本地物品图片上传、格式校验与压缩
+- 添加物品时提供与最终卡片同为 1.16:1 的图片预览框，可拖动、缩放、重置并确认裁剪；未确认前不会保存物品
 - 五张随项目提供的莫兰迪油画演示图；用户上传图片始终优先显示
 - “需要关注”只列真正到清洗周期的物品
 - 智能助手统一承载规则计划与可选 OpenAI Responses API 建议
@@ -140,7 +141,7 @@ python scripts/seed_demo_data.py
 
 真实密钥只能保存在本地 `.env` 或 Streamlit secrets 中，不得提交到 Git。
 
-只有同时配置 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 才会尝试 AI Agent；否则“智能助手”使用规则模式。无论哪种模式，洗晒计划都必须同时取得天气和物品事实。图片只保存在本地 `data/uploads/`，单张最大 5 MB，不会提交到 Git。
+只有同时配置 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 才会尝试 AI Agent；否则“智能助手”使用规则模式。无论哪种模式，洗晒计划都必须同时取得天气和物品事实。图片选择、构图预览和裁剪都在本机完成，最终图片只保存在本地 `data/uploads/`，单张最大 5 MB，不会发送给模型或提交到 Git。
 
 ## 项目结构
 
@@ -155,6 +156,7 @@ aimini/
 │  ├─ agent.py
 │  ├─ database.py
 │  ├─ demo_data.py
+│  ├─ image_cropper_component.py
 │  ├─ image_storage.py
 │  ├─ item_views.py
 │  ├─ models.py
